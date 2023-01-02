@@ -106,7 +106,7 @@ parser.add_argument(
     help='Saves checkpoints at every specified number of epochs',
     type=int,
     default=10)
-parser.add_argument('--mode', type=str, required=True, help='train | test')
+parser.add_argument('--mode', type=str, default='train', help='train | test')
 parser.add_argument(
     '--num_monte_carlo',
     type=int,

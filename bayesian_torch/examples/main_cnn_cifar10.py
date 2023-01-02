@@ -95,31 +95,31 @@ def evaluate(args, model, device, test_loader):
         pred_mean = np.mean(pred_probs_mc, axis=0)
         Y_pred = np.argmax(pred_mean, axis=1)
         print('Test accuracy:', (Y_pred == target_labels).mean() * 100)
-        np.save('./probs_mnist_mc.npy', pred_probs_mc)
-        np.save('./mnist_test_labels_mc.npy', target_labels)
+        np.save('./probs_cifar10_mc.npy', pred_probs_mc)
+        np.save('./cifar10_test_labels_mc.npy', target_labels)
 
 
 def main():
     # Training settings
-    parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
     parser.add_argument('--batch-size',
                         type=int,
-                        default=64,
+                        default=512,
                         metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size',
                         type=int,
-                        default=10000,
+                        default=100,
                         metavar='N',
                         help='input batch size for testing (default: 10000)')
     parser.add_argument('--epochs',
                         type=int,
-                        default=14,
+                        default=100,
                         metavar='N',
                         help='number of epochs to train (default: 14)')
     parser.add_argument('--lr',
                         type=float,
-                        default=1.0,
+                        default=1,
                         metavar='LR',
                         help='learning rate (default: 1.0)')
     parser.add_argument('--gamma',
@@ -154,7 +154,7 @@ def main():
         help='number of Monte Carlo samples to be drawn for inference')
     parser.add_argument('--num_mc',
                         type=int,
-                        default=1,
+                        default=6,
                         metavar='N',
                         help='number of Monte Carlo runs during training')
     parser.add_argument(
@@ -165,7 +165,7 @@ def main():
     parser.add_argument(
         '--log_dir',
         type=str,
-        default='./logs/mnist/bayesian',
+        default='./logs/cifar10/bayesian',
         metavar='N',
         help=
         'use tensorboard for logging and visualization of training progress')
@@ -187,7 +187,7 @@ def main():
             os.makedirs(logger_dir)
 
         tb_writer = SummaryWriter(logger_dir)
-    train_loader = torch.utils.data.DataLoader(datasets.MNIST(
+    train_loader = torch.utils.data.DataLoader(datasets.CIFAR10(
         '../data',
         train=True,
         download=True,
@@ -198,9 +198,10 @@ def main():
                                                batch_size=args.batch_size,
                                                shuffle=True,
                                                **kwargs)
-    test_loader = torch.utils.data.DataLoader(datasets.MNIST(
+    test_loader = torch.utils.data.DataLoader(datasets.CIFAR10(
         '../data',
         train=False,
+        download=True,
         transform=transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307, ), (0.3081, ))
@@ -212,7 +213,7 @@ def main():
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    model = simple_cnn.SCNN()
+    model = simple_cnn.CNN()
     model = model.to(device)
 
     print(args.mode)
@@ -230,10 +231,10 @@ def main():
             scheduler.step()
 
             torch.save(model.state_dict(),
-                       args.save_dir + "/mnist_bayesian_scnn.pth")
+                       args.save_dir + "/cifar10_bayesian_scnn.pth")
 
     elif args.mode == 'test':
-        checkpoint = args.save_dir + '/mnist_bayesian_scnn.pth'
+        checkpoint = args.save_dir + '/cifar10_bayesian_scnn.pth'
         model.load_state_dict(torch.load(checkpoint))
         evaluate(args, model, device, test_loader)
 

@@ -20,6 +20,10 @@ import torch.utils.data.distributed
 from torch.nn import functional as F
 import torchvision
 import torchvision.transforms as transforms
+from torch.utils.data import Dataset
+from PIL import Image
+import pandas as pd
+import os.path as osp
 import torchvision.datasets as datasets
 import torchvision.models as models
 import models.bayesian.resnet_variational_large as resnet
@@ -30,6 +34,7 @@ import csv
 import numpy as np
 from utils.util import get_rho
 from torch.utils.tensorboard import SummaryWriter
+import platform
 
 torchvision.set_image_backend('accimage')
 
@@ -39,14 +44,14 @@ model_names = sorted(
     and name.startswith("resnet") and callable(resnet.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data',
-                    metavar='DIR',
-                    default='data/imagenet',
-                    help='path to dataset')
+# parser.add_argument('data',
+#                     metavar='DIR',
+#                     default='data/imagenet',
+#                     help='path to dataset')
 parser.add_argument('-a',
                     '--arch',
                     metavar='ARCH',
-                    default='resnet50',
+                    default='resnet18',
                     choices=model_names,
                     help='model architecture: ' + ' | '.join(model_names) +
                     ' (default: resnet50)')
@@ -66,7 +71,7 @@ parser.add_argument('--start-epoch',
                     type=int,
                     metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--val_batch_size', default=1000, type=int)
+parser.add_argument('--val_batch_size', default=32, type=int)
 parser.add_argument('-b',
                     '--batch-size',
                     default=32,
@@ -142,7 +147,10 @@ parser.add_argument('--multiprocessing-distributed',
                     'N processes per node, which has N GPUs. This is the '
                     'fastest way to use PyTorch for either single node or '
                     'multi node data parallel training')
-parser.add_argument('--mode', type=str, required=True, help='train | test')
+parser.add_argument('--mode', default='train',  help='train | test')
+parser.add_argument("--batch", type=int, default=32)
+parser.add_argument("--input_size", type=int, default=224)
+parser.add_argument("--mini", type=bool, default=True)
 parser.add_argument('--save-dir',
                     dest='save_dir',
                     help='The directory used to save the trained models',
@@ -344,56 +352,107 @@ def main_worker(gpu, ngpus_per_node, args):
             os.makedirs(logger_dir)
         tb_writer = SummaryWriter(logger_dir)
 
-    # Data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]))
-
-    val_dataset = datasets.ImageFolder(
-        valdir,
-        transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ]))
-
-    print('len trainset: ', len(train_dataset))
-    print('len valset: ', len(val_dataset))
-    len_trainset = len(train_dataset)
-
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            train_dataset)
+    if platform.system().lower() == "windows":
+        SICAPV2_PATH = "D:\data\SICAPv2"
+        PANDA_PATH = "D:\data\Panda\Panda_patches_256_resized"
+        RadboudPath = r"D:\data\radb_only"
+        KarolinskaPath = r"D:\data\karolinska"
+        Sicapv2Path = r"D:\data\SICAPv2\dfs"
     else:
-        train_sampler = None
+        SICAPV2_PATH = "/data/BasesDeDatos/SICAP/SICAPv2/"
+        PANDA_PATH = "/data/BasesDeDatos/Panda/Panda_patches_resized/"
+        RadboudPath = "/data/BasesDeDatos/Panda/Panda_patches_resized/radb_only"
+        KarolinskaPath = "/home/jiahui/data/karolinska"
+        Sicapv2Path = "/home/jiahui/data/sicapv2"
 
-    train_loader = torch.utils.data.DataLoader(train_dataset,
-                                               batch_size=args.batch_size,
-                                               shuffle=True,
-                                               num_workers=args.workers,
-                                               pin_memory=True,
-                                               drop_last=True)
+    class SICAPV2Dataset(Dataset):
+        def __init__(self, df, input_size=512, mini=False):
+            self.data_df = df
+            if mini == True:
+                self.data_df = self.data_df[:2000]
+            self.path = SICAPV2_PATH
+            self.transform = transforms.Compose([
+                transforms.Resize(input_size),
+                transforms.ToTensor(),
+            ])
+            print("image size: ", input_size)
+            onehot_targets = self.data_df[['NC', 'G3', 'G4', 'G5']].values
+            self.targets = np.argmax(onehot_targets, axis=1)
 
-    val_loader = torch.utils.data.DataLoader(val_dataset,
-                                             batch_size=args.val_batch_size,
-                                             shuffle=False,
-                                             num_workers=args.workers,
-                                             pin_memory=True)
+        def __len__(self):
+            return self.data_df.shape[0]
 
-    if args.evaluate:
-        validate(val_loader, model, criterion, args)
-        return
+        def __getitem__(self, index):
+            if torch.is_tensor(index):
+                index = index.tolist()
+            row = self.data_df.iloc[index]
+
+            image = Image.open(osp.join(self.path, "images", row["image_name"]))
+            if self.transform is not None:
+                image = self.transform(image)
+
+            target = self.targets[index]
+            return image, target
+
+    sicapv2_train_csv = pd.read_excel((osp.join(Sicapv2Path, "Train.xlsx")))
+    sicapv2_test_csv = pd.read_excel((osp.join(Sicapv2Path, "Test.xlsx")))
+
+    sicapv2_train_set = SICAPV2Dataset(sicapv2_train_csv, input_size=args.input_size, mini=args.mini)
+    sicapv2_test_set = SICAPV2Dataset(sicapv2_test_csv, input_size=args.input_size, mini=args.mini)
+
+    train_loader = torch.utils.data.DataLoader(sicapv2_train_set, batch_size=args.batch_size, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(sicapv2_test_set, batch_size=args.batch_size, shuffle=False)
+
+    # # Data loading code
+    # traindir = os.path.join(args.data, 'train')
+    # valdir = os.path.join(args.data, 'val')
+    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+    #                                  std=[0.229, 0.224, 0.225])
+    # 
+    # train_dataset = datasets.ImageFolder(
+    #     traindir,
+    #     transforms.Compose([
+    #         transforms.RandomResizedCrop(224),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         normalize,
+    #     ]))
+    # 
+    # val_dataset = datasets.ImageFolder(
+    #     valdir,
+    #     transforms.Compose([
+    #         transforms.Resize(256),
+    #         transforms.CenterCrop(224),
+    #         transforms.ToTensor(),
+    #         normalize,
+    #     ]))
+    # 
+    # print('len trainset: ', len(train_dataset))
+    # print('len valset: ', len(val_dataset))
+    # len_trainset = len(train_dataset)
+    # 
+    # if args.distributed:
+    #     train_sampler = torch.utils.data.distributed.DistributedSampler(
+    #         train_dataset)
+    # else:
+    #     train_sampler = None
+    # 
+    # train_loader = torch.utils.data.DataLoader(train_dataset,
+    #                                            batch_size=args.batch_size,
+    #                                            shuffle=True,
+    #                                            num_workers=args.workers,
+    #                                            pin_memory=True,
+    #                                            drop_last=True)
+    # 
+    # val_loader = torch.utils.data.DataLoader(val_dataset,
+    #                                          batch_size=args.val_batch_size,
+    #                                          shuffle=False,
+    #                                          num_workers=args.workers,
+    #                                          pin_memory=True)
+    # 
+    # if args.evaluate:
+    #     validate(val_loader, model, criterion, args)
+    #     return
 
     if args.mode == 'train':
 
@@ -435,8 +494,8 @@ def main_worker(gpu, ngpus_per_node, args):
         del det_model
 
         for epoch in range(args.start_epoch, args.epochs):
-            if args.distributed:
-                train_sampler.set_epoch(epoch)
+            # if args.distributed:
+            #     train_sampler.set_epoch(epoch)
             adjust_learning_rate(optimizer, epoch, args)
 
             # train for one epoch

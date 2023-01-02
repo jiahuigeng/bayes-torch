@@ -21,7 +21,7 @@ prior_mu = 0.0
 prior_sigma = 0.1
 posterior_mu_init = 0.0
 posterior_rho_init = -9.0
-
+from torchvision import models
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
     'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
@@ -149,7 +149,7 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=4):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = Conv2dReparameterization(
@@ -251,7 +251,9 @@ def resnet18(pretrained=False, **kwargs):
     """
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+        model = models.resnet18(pretrained=pretrained)
+        # model.fc =
+        # model.load_statemodels.resnet18(pretrained=pretrained)_dict(model_zoo.load_url(model_urls['resnet18']))
     return model
 
 
